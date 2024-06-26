@@ -70,17 +70,17 @@ During the assignment review, the following features will be demonstrated:
    ```bash
    npm run dev
 
-The tool will automatically:
+- The tool will automatically:
 
-Check for new emails in the connected Google and Outlook accounts.
-Parse and categorize the emails.
-Generate and send appropriate responses.
+- Check for new emails in the connected Google and Outlook accounts.
+- Parse and categorize the emails.
+- Generate and send appropriate responses.
 
-## API Endpoints
-/api/vi/process-mails: Connect to a Google email account using OAuth and send the generated responses.
-/api/vi/process-outlook: Connect to a Google email account using OAuth and send the generated responses.
+### API Endpoints
+- /api/vi/process-mails: Connect to a Google email account using OAuth and send the generated responses.
+- /api/vi/process-outlook: Connect to a Google email account using OAuth and send the generated responses.
 
-## Project Structure
+### Project Structure
 ```bash
 server
 ├── src
