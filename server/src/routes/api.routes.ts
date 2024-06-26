@@ -1,9 +1,9 @@
 import { Router } from "express"
-import {fetchEmails} from "../controllers/api.controller"
+import {processGmail, processOutlook} from "../controllers/api.controller"
 
 const apiRouter = Router()
 
-apiRouter.route("/fetch-mails").get(fetchEmails)
-
+apiRouter.route("/process-mails").get(processGmail)
+apiRouter.route("/process-outlook").get(processOutlook)
  
 export {apiRouter}

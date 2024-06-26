@@ -13,13 +13,22 @@ interface ENV {
   REDIRECT_URI: string | undefined,
   CLIENT_SECRET: string | undefined,
   CLIENT_ID: string | undefined,
+  GEMINI_API_KEY: string | undefined,
+  OUTLOOK_REDIRECT_URI: string | undefined,
+  OUTLOOK_TENANT_ID: string | undefined,
+  OUTLOOK_CLIENT_ID: string | undefined,
+
 }
 
 interface Config {
     REFRESH_TOKEN: string ,
     REDIRECT_URI: string,
     CLIENT_SECRET: string,
-    CLIENT_ID: string
+    CLIENT_ID: string,
+    GEMINI_API_KEY: string,
+    OUTLOOK_REDIRECT_URI: string,
+    OUTLOOK_TENANT_ID: string,
+    OUTLOOK_CLIENT_ID: string,
 }
 
 // Loading process.env as ENV interface
@@ -29,7 +38,11 @@ const getConfig = (): ENV => {
     REFRESH_TOKEN: process.env.REFRESH_TOKEN,
     REDIRECT_URI: process.env.REDIRECT_URI,
     CLIENT_SECRET: process.env.CLIENT_SECRET ,
-    CLIENT_ID: process.env.CLIENT_ID
+    CLIENT_ID: process.env.CLIENT_ID,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    OUTLOOK_REDIRECT_URI: process.env.OUTLOOK_REDIRECT_URI,
+    OUTLOOK_TENANT_ID: process.env.OUTLOOK_TENANT_ID,
+    OUTLOOK_CLIENT_ID: process.env.OUTLOOK_CLIENT_ID,
   };
 };
 
