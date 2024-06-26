@@ -79,8 +79,10 @@ During the assignment review, the following features will be demonstrated:
 ### API Endpoints
 - /api/vi/process-mails: Connect to a Google email account using OAuth and send the generated responses.
 - /api/vi/process-outlook: Connect to a Google email account using OAuth and send the generated responses.
+
 ### Demo Video
-[![Automated Email Response Tool Demo]()]((https://drive.google.com/file/d/1cKamtId-703NZpdu6yuHjwLh23Hmylyq/view?usp=sharing))
+[![Automated Email Response Tool Demo](http://img.youtube.com/vi/your_video_id/0.jpg)](https://drive.google.com/file/d/1cKamtId-703NZpdu6yuHjwLh23Hmylyq/view?usp=sharing)
+
 ### Project Structure
    ```bash
 server
