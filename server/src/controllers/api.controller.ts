@@ -6,6 +6,7 @@ import Redis from 'ioredis';
 import config from '../config'
 import { ApiResponse } from '../utils/ApiResponse';
 import { ApiError } from '../utils/ApiError';
+import { Request, Response } from 'express';
 import {
   GoogleGenerativeAI,
   HarmCategory,
@@ -46,17 +47,14 @@ const chatSession = model.startChat({
   history: [
   ],
 });
-
 const interactiveBrowserCredential = new InteractiveBrowserCredential({
   clientId: config.OUTLOOK_CLIENT_ID,
   tenantId: config.OUTLOOK_TENANT_ID,
   redirectUri: config.OUTLOOK_REDIRECT_URI,
 });
-
 const authProvider = new TokenCredentialAuthenticationProvider(interactiveBrowserCredential, {
   scopes: ['Mail.Read', 'Mail.Send', 'offline_access'],
 });
-
 const outlookClient = Client.initWithMiddleware({ authProvider });
 const redisClient = new Redis({
   host: 'localhost',
@@ -65,53 +63,73 @@ const redisClient = new Redis({
   enableReadyCheck: false
 });
 const emailQueue = new Queue('emailQueue', { connection: redisClient, });
-
+const data: any[] = [];
 // Schedule task to check emails periodically
-async function processGmail(){
+async function processGmail(req: Request, res: Response){
   try {
     await emailQueue.add('checkEmails', {});
+    const worker = new Worker('emailQueue', async (job) => {
+      if (job.name === 'checkEmails') {
+        const emails = await fetchEmails();
+        for (const email of emails) {
+          console.log(email);
+          try {
+            const replyContent = await generateReplyContent(email.content, email.category);
+            console.log(replyContent);
+            
+            await sendMail(email.sender, replyContent, email.id);
+            
+            // Push data to response array
+            data.push({
+              id: email.id,
+              to: email.sender,
+              replyContent: replyContent
+            });
+          } catch (error) {
+            console.error('Error sending email:', error);
+            return new ApiResponse(500, null, 'Error sending email');
+          }
+        }
+        // Close the queue after processing
+        emailQueue.close();
+        
+        // Send response with data array
+        return new ApiResponse(200, { data }, 'All emails sent successfully');
+      }
+    }, { connection: redisClient, });
+
+    return res.status(200).json(new ApiResponse(200, {},"Mail sent successfully"))
   } catch (error) {
     console.error('Error adding job to the queue:', error);
   }
 }
-async function processOutlook(){
+async function processOutlook(req: Request, res: Response){
   try {
     await emailQueue.add('checkEmailsOutlook', {});
+    const worker = new Worker('emailQueue', async (job) => {
+      if (job.name === 'checkEmailsOutlook') {
+        const emails = await fetchOutlookEmails();
+        for (const email of emails) {
+          console.log(email);
+          
+          const replyContent = await generateReplyContent(email.content, email.category);
+          console.log(replyContent);
+          
+          await sendMail(email.sender, replyContent, email.id);
+          return res.status(200).json(new ApiResponse(200, {},"Mail sent successfully"))
+        }
+      }
+    }, { connection: redisClient, });
+
   } catch (error) {
     console.error('Error adding job to the queue:', error);
   }
 }
-
-const worker = new Worker('emailQueue', async (job) => {
-  if (job.name === 'checkEmails') {
-    const emails = await fetchEmails();
-    for (const email of emails) {
-      console.log(email);
-      
-      const replyContent = await generateReplyContent(email.content, email.category);
-      console.log(replyContent);
-      
-      await sendMail(email.sender, replyContent, email.id);
-    }
-  }
-  if (job.name === 'checkEmailsOutlook') {
-    const emails = await fetchOutlookEmails();
-    for (const email of emails) {
-      console.log(email);
-      
-      const replyContent = await generateReplyContent(email.content, email.category);
-      console.log(replyContent);
-      
-      await sendMail(email.sender, replyContent, email.id);
-    }
-  }
-}, { connection: redisClient, });
 
 async function generateReplyContent(emailContent: string, category: string): Promise<string> {
   const result = await chatSession.sendMessage(`The following is an email classified as "${category}". Please provide a direct response.\n\nEmail content: "${emailContent}"\n\nIf the email mentions they are interested to know more, your reply should ask them if they are willing to hop on to a demo call by suggesting a time.\n\nResponse:`);
   return result.response.text();
 }
-
 async function fetchEmails() {
   try {
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
@@ -227,5 +245,4 @@ async function sendMail(to: string, replyContent: string, id: string) {
     return error;
   }
 }
-
 export {fetchEmails, sendMail, processGmail, processOutlook}

@@ -3,9 +3,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { apiRouter } from './routes/api.routes';
-
 dotenv.config();
-
 const app = express();
 
 // Middleware and configuration settings
@@ -20,5 +18,4 @@ app.use(cookieParser());
 
 // Routes declaration
 app.use("/api/v1", apiRouter);
-
 export { app };
