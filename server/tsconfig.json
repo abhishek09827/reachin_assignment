@@ -6,8 +6,9 @@
       "moduleResolution": "NodeNext",
       "sourceMap": true,
       "outDir": "./dist",
-      "rootDir": "./src"
+      "rootDir": "./src",
+      "typeRoots": ["./environment.d.ts", "./node_modules/@types"]
     },
-    "include": ["src/**/*"],
+    "include": ["./src/"],
     "lib": ["es2015"]
   }

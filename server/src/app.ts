@@ -19,6 +19,6 @@ app.use(express.static("public"));
 app.use(cookieParser());
 
 // Routes declaration
-app.use("/api/v1/users", apiRouter);
+app.use("/api/v1", apiRouter);
 
 export { app };
