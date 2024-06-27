@@ -38,7 +38,7 @@ During the assignment review, the following features will be demonstrated:
 - TypeScript
 - Redis
 - Google and Outlook OAuth credentials
-- OpenAI API key
+- Gemini API key
 
 ### Installation
 1. Clone the repository:
