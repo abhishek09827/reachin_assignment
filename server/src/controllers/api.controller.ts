@@ -7,6 +7,9 @@ import config from '../config'
 import { ApiResponse } from '../utils/ApiResponse';
 import { ApiError } from '../utils/ApiError';
 import { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
+import { htmlToText } from 'html-to-text';
 import {
   GoogleGenerativeAI,
   HarmCategory,
@@ -15,19 +18,20 @@ import {
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 import { InteractiveBrowserCredential } from '@azure/identity';
 import { Client } from '@microsoft/microsoft-graph-client';
+import {getEmailTextData, parseEmailResponse} from "../utils/GmailHelper"
 
 dotenv.config();
 const apiKey = config.GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(apiKey);
 
 const model = genAI.getGenerativeModel({
-  model: "gemini-1.5-pro",
+  model: "gemini-1.5-flash",
 });
 const generationConfig = {
-  temperature: 1,
+  temperature: 0.5,
   topP: 0.95,
   topK: 64,
-  maxOutputTokens: 8192,
+  maxOutputTokens: 1600,
   responseMimeType: "text/plain",
 };
 // These id's and secrets should come from .env file.
@@ -47,23 +51,31 @@ const chatSession = model.startChat({
   history: [
   ],
 });
-const interactiveBrowserCredential = new InteractiveBrowserCredential({
-  clientId: config.OUTLOOK_CLIENT_ID,
-  tenantId: config.OUTLOOK_TENANT_ID,
-  redirectUri: config.OUTLOOK_REDIRECT_URI,
-});
-const authProvider = new TokenCredentialAuthenticationProvider(interactiveBrowserCredential, {
-  scopes: ['Mail.Read', 'Mail.Send', 'offline_access'],
-});
-const outlookClient = Client.initWithMiddleware({ authProvider });
+// const interactiveBrowserCredential = new InteractiveBrowserCredential({
+//   clientId: config.OUTLOOK_CLIENT_ID,
+//   tenantId: config.OUTLOOK_TENANT_ID,
+//   redirectUri: config.OUTLOOK_REDIRECT_URI,
+// });
+// const authProvider = new TokenCredentialAuthenticationProvider(interactiveBrowserCredential, {
+//   scopes: ['Mail.Read', 'Mail.Send', 'offline_access'],
+// });
+// const outlookClient = Client.initWithMiddleware({ authProvider });
 const redisClient = new Redis({
   host: 'localhost',
-  port: 6380,
+  port: 6379,
   maxRetriesPerRequest: null,
   enableReadyCheck: false
 });
 const emailQueue = new Queue('emailQueue', { connection: redisClient, });
 const data: any[] = [];
+interface Email {
+  id: string;
+  content: string;
+  sender: string;
+  category: string
+}
+
+
 // Schedule task to check emails periodically
 async function processGmail(req: Request, res: Response){
   try {
@@ -74,7 +86,7 @@ async function processGmail(req: Request, res: Response){
         for (const email of emails) {
           console.log(email);
           try {
-            const replyContent = await generateReplyContent(email.content, email.category);
+            const replyContent = await generateReplyContent(email.content);
             console.log(replyContent);
             
             await sendMail(email.sender, replyContent, email.id);
@@ -103,33 +115,30 @@ async function processGmail(req: Request, res: Response){
     console.error('Error adding job to the queue:', error);
   }
 }
-async function processOutlook(req: Request, res: Response){
-  try {
-    await emailQueue.add('checkEmailsOutlook', {});
-    const worker = new Worker('emailQueue', async (job) => {
-      if (job.name === 'checkEmailsOutlook') {
-        const emails = await fetchOutlookEmails();
-        for (const email of emails) {
-          console.log(email);
-          
-          const replyContent = await generateReplyContent(email.content, email.category);
-          console.log(replyContent);
-          
-          await sendMail(email.sender, replyContent, email.id);
-          return res.status(200).json(new ApiResponse(200, {},"Mail sent successfully"))
-        }
-      }
-    }, { connection: redisClient, });
 
-  } catch (error) {
-    console.error('Error adding job to the queue:', error);
-  }
+async function generateReplyContent(mssgData: string): Promise<any> {
+
+        // Analyze the email content with the AI service
+        console.log("in");
+        
+        const response = await chatSession.sendMessage(`Suggest an appropriate response based on the content of the email provided as Email content. Return only the required response :
+          
+          Email content: "${mssgData}"`);
+          console.log(response.response.text());
+          
+          return response.response.text();
+}
+async function generateCategory(mssgData: string): Promise<string> {
+          
+  // Analyze the email content with the AI service
+  const response = await chatSession.sendMessage(`Classify the following email content into one of the categories: Interested, Not Interested, More Information. Reply in one word string, which is Category
+    Email content: "${mssgData}"`);
+    const category = response.response.text().trim();
+  console.log('Generated Category:', category);
+
+  return category;
 }
 
-async function generateReplyContent(emailContent: string, category: string): Promise<string> {
-  const result = await chatSession.sendMessage(`The following is an email classified as "${category}". Please provide a direct response.\n\nEmail content: "${emailContent}"\n\nIf the email mentions they are interested to know more, your reply should ask them if they are willing to hop on to a demo call by suggesting a time.\n\nResponse:`);
-  return result.response.text();
-}
 async function fetchEmails() {
   try {
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
@@ -146,75 +155,64 @@ async function fetchEmails() {
           id: message.id,
           format: 'full'
         });
-        console.log(msg);
+
         // Get the email body content
         const emailText = msg.data.snippet || '';
         const headers = msg.data.payload?.headers || [];
         const sender = headers.find(header => header.name === 'From')?.value || 'Unknown Sender';
-
-        // const emailText = Buffer.from(emailContent, 'base64').toString('utf-8');
-
-        // Analyze the email content with GeminiAPI
-        const response = await chatSession.sendMessage(`Classify the following email content into categories: Interested, Not Interested, More information.\n\nEmail content: "${emailText}"\n\nCategory:`);
-        const category = response.response.text();
-        console.log(response);
-        
-        console.log(`Email ID: ${message.id}, Category: ${category}`);
-        console.log({
-          id: message.id,
-          category,
-          content: emailText,
-        });
+        const mssgData = getEmailTextData(msg);
+        const category = await generateCategory(mssgData);
         
         return {
           id: message.id,
-          category,
-          content: emailText,
-          sender:sender
+          content: htmlToText(mssgData, {
+            wordwrap: 130,
+            preserveNewlines: true
+          }),
+          sender: sender,
+          category: category
         };
+        
       }
       return null;
     });
 
     const emails = await Promise.all(emailPromises);
-    return emails.filter((email) => email !== null);
+    const filteredEmails = emails.filter((email): email is Email => email !== null);
+
+    const dataFilePath = path.join(__dirname, '../../../client/src/components/mail/data.tsx');
+   
+
+  // Read the existing file
+  let existingData = [];
+  if (fs.existsSync(dataFilePath)) {
+    const fileContent = fs.readFileSync(dataFilePath, 'utf8');
+    const emailDataMatch = fileContent.match(/export const emailData = (\[.*?\]);/);
+    if (emailDataMatch && emailDataMatch[1]) {
+      existingData = JSON.parse(emailDataMatch[1]);
+    }
+  }
+
+  // Append the new emails
+  const updatedData = existingData.concat(filteredEmails);
+
+  // Write the updated data back to the file
+  const newFileContent = `export const emailData = ${JSON.stringify(updatedData, null, 2)};
+export type MailData = (typeof emailData)[number];`;
+
+  fs.writeFileSync(dataFilePath, newFileContent, 'utf8');
+    
+
+    // Write the emails to data.tsx
+     
+    
+    return filteredEmails;
   } catch (error) {
     console.error('Error fetching emails:', error);
     throw error;
   }
 }
-async function fetchOutlookEmails() {
-  try {
-    const messages = await outlookClient
-      .api('/me/messages')
-      .top(10)
-      .get();
 
-    const emailPromises = messages.value.map(async (message) => {
-      const emailText = message.body.content || '';
-      const sender = message.from.emailAddress.address || 'Unknown Sender';
-
-      const response = await chatSession.sendMessage(
-        `Classify the following email content into categories: Interested, Not Interested, More information.\n\nEmail content: "${emailText}"\n\nCategory:`);
-
-      const jsonResponse = JSON.parse(response.response.text());
-      const category = jsonResponse.response;
-
-      return {
-        id: message.id,
-        category,
-        content: emailText,
-        sender: sender
-      };
-    });
-
-    const emails = await Promise.all(emailPromises);
-    return emails;
-  } catch (error) {
-    console.error('Error fetching Outlook emails:', error);
-    throw error;
-  }
-}
 async function sendMail(to: string, replyContent: string, id: string) {
   try {
     const accessToken = await oAuth2Client.getAccessToken();
@@ -245,4 +243,102 @@ async function sendMail(to: string, replyContent: string, id: string) {
     return error;
   }
 }
-export {fetchEmails, sendMail, processGmail, processOutlook}
+async function sendMailButton(req: Request, res: Response) {
+  try {
+    const { to, content, id } = req.body;
+    console.log(content);
+
+    const replyContent = await generateReplyContent(content);
+
+    const accessToken = await oAuth2Client.getAccessToken();
+    console.log(accessToken);
+
+    const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+
+    const raw = createEmail(to, 'testid803@gmail.com', `Re: Reply to mail id : ${id}`, replyContent);
+    await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: {
+        raw: raw,
+      },
+    });
+
+    return new ApiResponse(200, { "to": to, "data": replyContent }, "Mail sent successfully");
+  } catch (error) {
+    console.error('Error sending email:', error);
+    return new ApiResponse(500, {}, "Failed to send email");
+  }
+}
+
+function createEmail(to: string, from: string, subject: string, message: string): string {
+  const str = [
+    `Content-Type: text/plain; charset="UTF-8"\n`,
+    `MIME-Version: 1.0\n`,
+    `Content-Transfer-Encoding: 7bit\n`,
+    `to: ${to}\n`,
+    `from: ${from}\n`,
+    `subject: ${subject}\n\n`,
+    message,
+  ].join('');
+
+  return Buffer.from(str)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+// async function fetchOutlookEmails() {
+//   try {
+//     const messages = await outlookClient
+//       .api('/me/messages')
+//       .top(10)
+//       .get();
+
+//     const emailPromises = messages.value.map(async (message) => {
+//       const emailText = message.body.content || '';
+//       const sender = message.from.emailAddress.address || 'Unknown Sender';
+
+//       const response = await chatSession.sendMessage(
+//         `Classify the following email content into categories: Interested, Not Interested, More information.\n\nEmail content: "${emailText}"\n\nCategory:`);
+
+//       const jsonResponse = JSON.parse(response.response.text());
+//       const category = jsonResponse.response;
+
+//       return {
+//         id: message.id,
+//         category,
+//         content: emailText,
+//         sender: sender
+//       };
+//     });
+
+//     const emails = await Promise.all(emailPromises);
+//     return emails;
+//   } catch (error) {
+//     console.error('Error fetching Outlook emails:', error);
+//     throw error;
+//   }
+// }
+// async function processOutlook(req: Request, res: Response){
+//   try {
+//     await emailQueue.add('checkEmailsOutlook', {});
+//     const worker = new Worker('emailQueue', async (job) => {
+//       if (job.name === 'checkEmailsOutlook') {
+//         const emails = await fetchOutlookEmails();
+//         for (const email of emails) {
+//           console.log(email);
+          
+//           const replyContent = await generateReplyContent(email.content, email.category);
+//           console.log(replyContent);
+          
+//           await sendMail(email.sender, replyContent, email.id);
+//           return res.status(200).json(new ApiResponse(200, {},"Mail sent successfully"))
+//         }
+//       }
+//     }, { connection: redisClient, });
+
+//   } catch (error) {
+//     console.error('Error adding job to the queue:', error);
+//   }
+// }
+export {fetchEmails, sendMail, processGmail,sendMailButton}
